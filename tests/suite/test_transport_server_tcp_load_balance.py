@@ -90,6 +90,7 @@ class TestTransportServerTcpLoadBalance:
         for i in range(20):
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect((host, port))
+            client.sendall(b'connect')
             response = client.recv(4096)
             endpoint = response.decode()
             print(f' req number {i}; response: {endpoint}')
@@ -131,6 +132,7 @@ class TestTransportServerTcpLoadBalance:
         print(f"sending tcp requests to: {host}:{port}")
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect((host, port))
+        client.sendall(b'connect')
         response = client.recv(4096)
         endpoint = response.decode()
         print(f'response: {endpoint}')
@@ -176,6 +178,7 @@ class TestTransportServerTcpLoadBalance:
         print(f"sending tcp requests to: {host}:{port}")
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect((host, port))
+        client.sendall(b'connect')
         response = client.recv(4096)
         endpoint = response.decode()
         print(f'response: {endpoint}')
@@ -212,12 +215,12 @@ class TestTransportServerTcpLoadBalance:
 
         print(f"sending tcp requests to: {host}:{port}")
         for i in range(3):
-            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect((host, port))
-            response = client.recv(4096)
-            endpoint = response.decode()
-            assert endpoint == ""
-            client.close()
+            try:
+                client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client.connect((host, port))
+                client.sendall(b'connect')
+            except ConnectionResetError as E:
+                print("The expected exception occurred:", E)
 
         self.restore_ts(kube_apis, transport_server_setup)
 
@@ -243,12 +246,12 @@ class TestTransportServerTcpLoadBalance:
 
         print(f"sending tcp requests to: {host}:{port}")
         for i in range(3):
-            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect((host, port))
-            response = client.recv(4096)
-            endpoint = response.decode()
-            assert endpoint == ""
-            client.close()
+            try:
+                client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client.connect((host, port))
+                client.sendall(b'connect')
+            except ConnectionResetError as E:
+                print("The expected exception occurred:", E)
 
         self.restore_ts(kube_apis, transport_server_setup)
 
@@ -262,9 +265,15 @@ class TestTransportServerTcpLoadBalance:
         print(f'response: {endpoint}')
         return client
 
-    def test_tcp_request_max_connections_config(
+    def test_tcp_request_max_connections(
             self, kube_apis, crd_ingress_controller, transport_server_setup, ingress_controller_prerequisites
     ):
+        """
+        The config, maxConnections, should limit the number of open TCP connections.
+        3 replicas of max 2 connections is 6, so making the 7th connection will fail.
+        """
+
+        # step 1 - set max connections to 2 with 1 replica
         patch_src = f"{TEST_DATA}/transport-server-tcp-load-balance/max-connections-transport-server.yaml"
         patch_ts(
             kube_apis.custom_objects,
@@ -286,26 +295,6 @@ class TestTransportServerTcpLoadBalance:
         configs = re.findall(pattern, result_conf)
 
         assert len(configs) is 3
-
-        self.restore_ts(kube_apis, transport_server_setup)
-
-    def test_tcp_request_max_connections(
-            self, kube_apis, crd_ingress_controller, transport_server_setup
-    ):
-        """
-        The config, maxConnections, should limit the number of open TCP connections.
-        3 replicas of max 2 connections is 6, so making the 7th connection will fail.
-        """
-
-        # step 1 - set max connections to 2 with 1 replica
-        patch_src = f"{TEST_DATA}/transport-server-tcp-load-balance/max-connections-transport-server.yaml"
-        patch_ts(
-            kube_apis.custom_objects,
-            transport_server_setup.name,
-            patch_src,
-            transport_server_setup.namespace,
-        )
-        wait_before_test()
 
         # step 2 - make the number of allowed connections
         port = transport_server_setup.public_endpoint.tcp_server_port
