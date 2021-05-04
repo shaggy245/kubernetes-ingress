@@ -40,7 +40,7 @@ class TestTransportServerTcpLoadBalance:
         """
         Function to revert a TransportServer resource to a valid state.
         """
-        patch_src = f"{TEST_DATA}/transport-server-status/standard/transport-server.yaml"
+        patch_src = f"{TEST_DATA}/transport-server-tcp-load-balance/standard/transport-server.yaml"
         patch_ts(
             kube_apis.custom_objects,
             transport_server_setup.name,
@@ -262,11 +262,39 @@ class TestTransportServerTcpLoadBalance:
         print(f'response: {endpoint}')
         return client
 
-    def test_tcp_request_max_connections(
+    def test_tcp_request_max_connections_config(
             self, kube_apis, crd_ingress_controller, transport_server_setup, ingress_controller_prerequisites
     ):
+        patch_src = f"{TEST_DATA}/transport-server-tcp-load-balance/max-connections-transport-server.yaml"
+        patch_ts(
+            kube_apis.custom_objects,
+            transport_server_setup.name,
+            patch_src,
+            transport_server_setup.namespace,
+        )
+        wait_before_test()
+
+        result_conf = get_ts_nginx_template_conf(
+            kube_apis.v1,
+            transport_server_setup.namespace,
+            transport_server_setup.name,
+            transport_server_setup.ingress_pod_name,
+            ingress_controller_prerequisites.namespace
+        )
+
+        pattern = 'max_conns=2'
+        configs = re.findall(pattern, result_conf)
+
+        assert len(configs) is 3
+
+        self.restore_ts(kube_apis, transport_server_setup)
+
+    def test_tcp_request_max_connections(
+            self, kube_apis, crd_ingress_controller, transport_server_setup
+    ):
         """
-        Requests to the load balanced TCP service should result in responses from 3 different endpoints.
+        The config, maxConnections, should limit the number of open TCP connections.
+        3 replicas of max 2 connections is 6, so making the 7th connection will fail.
         """
 
         # step 1 - set max connections to 2 with 1 replica
